@@ -30,7 +30,7 @@ def main():
     args = parser.parse_args()
 
     # Configure logging
-    utils.config_logging(logging.DEBUG if args.debug else logging.INFO)
+    utils.config_logging(logging.DEBUG if args.debug else logging.INFO, "speech")
 
     if args.run:
         Speech_Recognition_Wrapper().run()

@@ -11,6 +11,7 @@ setup(
     download_url='https://github.com/jfuruness/lib_speech_recognition_wrapper.git',
     keywords=['Furuness', 'Assistant', 'voice', 'sphinx', 'voice assistant'],
     install_requires=[
+        'lib_utils',
         'pocketsphinx',
         'pyaudio',
     ],
