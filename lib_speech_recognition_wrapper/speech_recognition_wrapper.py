@@ -42,7 +42,7 @@ class Speech_Recognition_Wrapper:
 
         with open(self.keywords_path, "w") as f:
             for keyword, multiplier in self.keywords_dict.items():
-                f.write(f"{keyword} /1e-{multiplier}/\n")
+                f.write(f"{keyword} /1e{multiplier}/\n")
 
     def write_language_dict(self):
         """Writes the language dictionary of the keywords"""
@@ -130,7 +130,7 @@ class Speech_Recognition_Wrapper:
                         #seg.end_frame) for seg in decoder.seg()])
                         print(f"\nDetected keyword, running {callback.__name__}")
                         decoder.end_utt()
-                        callback()
+                        callback(decoder.hyp().hypstr)
                         print("Listening again\r")
 
                         decoder.start_utt()
