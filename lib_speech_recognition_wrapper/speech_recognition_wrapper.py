@@ -1,4 +1,5 @@
 from datetime import datetime
+import itertools
 import logging
 import os
 import re
@@ -19,7 +20,8 @@ class Speech_Recognition_Wrapper:
     def __init__(self,
                  keywords_dict=None,
                  redownload=True,
-                 callback_dict={}):
+                 callback_dict={},
+                 removed_words=[]):
         """Saves and if redownload then writes keywords"""
 
         # model path for pocket sphinx
@@ -31,7 +33,7 @@ class Speech_Recognition_Wrapper:
 
         if redownload:
             self.write_keywords()
-            self.write_language_dict()
+            self.write_language_dict(removed_words)
 
         self.config = self.get_config()
 
@@ -45,7 +47,7 @@ class Speech_Recognition_Wrapper:
             for keyword, multiplier in self.keywords_dict.items():
                 f.write(f"{keyword} /1e{multiplier}/\n")
 
-    def write_language_dict(self):
+    def write_language_dict(self, words_to_remove):
         """Writes the language dictionary of the keywords"""
 
         logging.debug("Writing new dict")
@@ -53,6 +55,58 @@ class Speech_Recognition_Wrapper:
                                'cmudict-en-us.dict'), "r") as f:
             lines = list(f.readlines())
 
+        words_to_remove = set(words_to_remove)
+
+        lines_to_keep = []
+
+        for line in lines:
+            first_word = line.split()[0]
+            # Sometimes fmt blackboard(2) <pronounciation>
+            if "(" in first_word:
+                first_word = first_word.split("(")[0]
+            if first_word not in words_to_remove:
+                lines_to_keep.append(line)
+
+        with open(self.dict_path, "w") as f:
+           for line in lines_to_keep:
+               f.write(line)
+        return
+
+
+        """
+        all_words = []
+        for keyword in self.keywords_dict:
+            all_words.extend(keyword.split())
+        all_words = set(all_words)
+
+        word_dict = {}
+        for word in sorted(all_words):
+            word_dict[word] = []
+
+        for line in lines:
+            first_word = line.split(" ")[0]
+            if "(" in first_word:
+                first_word = first_word.split("(")[0]
+            if first_word in all_words:
+                pronounciation = " ".join(line.split()[1:]).replace("\n", "")
+                word_dict[first_word].append(pronounciation)
+
+        with open(self.dict_path, "w") as f:
+            for keyword in self.keywords_dict:
+                pronounciations = []
+                for word in keyword.split():
+                    pronounciations.append(word_dict[word])
+                for i, combo in enumerate(list(itertools.product(*pronounciations))):
+                    line = "-".join(keyword.split())
+                    if i + 1 > 1:
+                        line += f"({i + 1})"
+                    line += " " + " ".join(combo) + "\n"
+                    f.write(line)
+
+
+
+        return
+        """
         save_lines = []
 
         all_words = []
@@ -77,6 +131,8 @@ class Speech_Recognition_Wrapper:
 
         # To do this, just only copy the words you want over to another file
         config.set_string('-dict', self.dict_path)
+        #config.set_string('-dict', os.path.join(self.model_path,
+        #                                        'cmudict-en-us.dict'))
         config.set_string('-kws', self.keywords_path)
         config.set_string("-logfn", '/dev/null')
         config.set_boolean("-verbose", False)
@@ -112,9 +168,6 @@ class Speech_Recognition_Wrapper:
             else:
                 break
             if decoder.hyp() is not None:
-
-
-
                 if last_decode_str == decoder.hyp().hypstr:
                     reset_max = 5
                     if perf_counter() - last_decode_time > reset_max:
@@ -133,8 +186,7 @@ class Speech_Recognition_Wrapper:
                 for keyword, callback in self.callbacks_dict.items():
                     if len(re.findall(r"\b(" + f"{keyword}).*",
                                       decoder.hyp().hypstr)) > 0:
-                        #print([(seg.word, seg.prob, seg.start_frame,
-                        #seg.end_frame) for seg in decoder.seg()])
+                        print([(seg.word, seg.prob) for seg in decoder.seg()])
                         print(f"\nDetected keyword, running {callback.__name__}")
                         decoder.end_utt()
                         callback(decoder.hyp().hypstr)
@@ -144,7 +196,7 @@ class Speech_Recognition_Wrapper:
                         just_restarted = True
                         break
                 
-                if not just_restarted and len(decoder.hyp().hypstr) > 15:
+                if not just_restarted and len(decoder.hyp().hypstr) > 25:
                     print("No keyword, restarting search\r")
                     decoder.end_utt()
                     decoder.start_utt() 
