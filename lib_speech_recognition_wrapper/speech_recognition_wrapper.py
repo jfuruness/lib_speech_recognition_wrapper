@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 import os
 import re
 from time import perf_counter
@@ -47,17 +48,23 @@ class Speech_Recognition_Wrapper:
     def write_language_dict(self):
         """Writes the language dictionary of the keywords"""
 
+        logging.debug("Writing new dict")
         with open(os.path.join(self.model_path,
                                'cmudict-en-us.dict'), "r") as f:
             lines = list(f.readlines())
 
         save_lines = []
+
+        all_words = []
         for keyword in self.keywords_dict:
-            for word in keyword.split():
-                for line in lines:
-                    # fix later
-                    if line.startswith(word + " ") or line.startswith(word + "("):
-                        save_lines.append(line)
+            all_words.extend(keyword.split())
+        all_words = set(all_words)
+
+        for line in lines:
+            first_word = line.split(" ")[0]
+            if first_word in all_words or first_word.split("(")[0] in all_words:
+                save_lines.append(line)
+
         with open(self.dict_path, "w") as f:
             for line in save_lines:
                 f.write(line)
