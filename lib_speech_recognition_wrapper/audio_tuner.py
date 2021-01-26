@@ -37,7 +37,7 @@ class Audio_Tuner:
         self.generate_new_model()
         self.test_new_model()
 
-    def generate_new_model(self)
+    def generate_new_model(self):
         self.write_files()
         self.record_files()
         self.copy_files()
@@ -51,6 +51,7 @@ class Audio_Tuner:
 
     def test_new_model(self):
         self.write_test_files()
+        self.run_test_decoder()
         input("wait")        
 
     def write_files(self):
@@ -164,7 +165,7 @@ class Audio_Tuner:
         new_dict = os.path.join(self.test_dir, "cmudict-en-us.dict")
         old_hmm = os.path.join(self.tuned_path, "en-us")
         new_hmm = os.path.join(self.test_dir, "en-us")
-        old_mllr_matrix = os.path.join(self.tuned_path, "mllr_matrix"),
+        old_mllr_matrix = os.path.join(self.tuned_path, "mllr_matrix")
         new_mllr_matrix = os.path.join(self.test_dir, "mllr_matrix")
         utils.run_cmds([f"cd {self.tuned_path}",
                         f"cp {self.file_ids_path} {self.test_file_ids_path}",
@@ -173,12 +174,12 @@ class Audio_Tuner:
                         f"cp *wav {wav_dir}",
                         f"cp {old_lm} {new_lm}",
                         f"cp {old_dict} {new_dict}",
-                        f"cp {old_hmm} {new_hmm}",
+                        f"cp -R {old_hmm} {new_hmm}",
                         f"cp {old_mllr_matrix} {new_mllr_matrix}"])
 
-    def run_decoder(self):
+    def run_test_decoder(self):
         for mllr in "", "\\\n -mllr mllr_matrix":
-            utils.run_cmds((f"cd {self.test_dir} && \\\n",
+            utils.run_cmds((f"cd {self.test_dir} && \\\n"
                             "pocketsphinx_batch \\\n"
                             f" -adcin yes \\\n"
                             f" -cepdir wav \\\n"
@@ -187,7 +188,8 @@ class Audio_Tuner:
                             f" -lm `en-us.lm.bin` \\\n"
                             f" -dict `cmudict-en-us.dict` \\\n"
                             f" -hmm `en-us` \\\n"  # for example en-us
-                            f" -hyp test.hyp") + mllr)
+                            f" -hyp test.hyp") + mllr,
+                            stdout=True)
 
 
     def write_transcription_file_ids(self):
@@ -251,7 +253,7 @@ class Audio_Tuner:
     def file_ids_path(self):
         return os.path.join(self.tuned_path, self.file_ids_name)
 
-    @propert
+    @property
     def test_dir(self):
         return os.path.join(self.tuned_path, "test")
 
