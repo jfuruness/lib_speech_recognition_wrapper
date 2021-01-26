@@ -175,7 +175,8 @@ class Audio_Tuner:
                         f"cp {old_lm} {new_lm}",
                         f"cp {old_dict} {new_dict}",
                         f"cp -R {old_hmm} {new_hmm}",
-                        f"cp {old_mllr_matrix} {new_mllr_matrix}"])
+                        f"cp {old_mllr_matrix} {new_mllr_matrix}",
+                        f"cp {self.tuned_path}/sphinxtrain/scripts/decode/word_align.pl ./test/"])
 
     def run_test_decoder(self):
         for mllr in "", "\\\n -mllr mllr_matrix":
@@ -185,11 +186,15 @@ class Audio_Tuner:
                             f" -cepdir wav \\\n"
                             f" -cepext .wav \\\n"
                             f" -ctl test.fileids \\\n"
-                            f" -lm `en-us.lm.bin` \\\n"
-                            f" -dict `cmudict-en-us.dict` \\\n"
-                            f" -hmm `en-us` \\\n"  # for example en-us
+                            f" -lm en-us.lm.bin \\\n"
+                            f" -dict cmudict-en-us.dict \\\n"
+                            f" -hmm en-us \\\n"  # for example en-us
                             f" -hyp test.hyp") + mllr,
                             stdout=True)
+            utils.run_cmds([f"cd {self.test_dir}",
+                            "perl word_align.pl test.transcription test.hyp"],
+                            stdout=True)
+            input("test 1 no mllr, hit enter")
 
 
     def write_transcription_file_ids(self):
