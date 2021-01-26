@@ -2,6 +2,7 @@ from datetime import datetime
 import os
 import logging
 from multiprocessing import Manager, cpu_count
+from random import shuffle
 
 from pathos.multiprocessing import ProcessPool
 from pocketsphinx import get_model_path
@@ -29,22 +30,25 @@ class Audio_Tuner:
         """tuning phrases to be tuned to"""
 
         self.session_id = datetime.now().strftime("Y_%m_%d_%H_%M_%S")
-        self.session_id += "_" + input("User name").lower() + "_"
+        self.session_id += "_" + input("User name: ").lower() + "_"
         self.model_path = get_model_path()
         self.tuning_phrases = tuning_phrases * times_to_record
         if test:
+            shuffle(self.tuning_phrases)
             self.tuning_phrases = self.tuning_phrases[:1]
         # model path for pocket sphinx
         self.model_path = get_model_path()
 
     def run(self):
+        utils.run_cmds("sudo apt -y install pocketsphinx")
         self.generate_new_model()
         self.test_new_model()
         input("backup audio in /etc/audio")
 
     def generate_new_model(self):
-        self.write_files()
+        self.make_file_dirs()
         self.record_files()
+        self.write_transcription_file_ids()
         self.copy_files()
         self.install_sphinx_base()
         self.run_sphinx_fe()
@@ -60,22 +64,21 @@ class Audio_Tuner:
         self.run_test_decoder()
         input("wait")        
 
-    def write_files(self):
+    def make_file_dirs(self):
         utils.delete_paths(self.tuned_path)
         utils.makedirs(self.tuned_path)
         if not os.path.exists(self.audio_path):
             utils.makedirs(self.audio_path)
-        self.write_transcription_file_ids()
 
     def record_files(self):
         phrase_fnames = list(self.phrase_iter())
         for i, (phrase, fname) in enumerate(phrase_fnames):
-            print("{i + 1}/{len(phrase_fnames)} complete")
             self.record_phrase(phrase, fname)
+            print(f"{i + 1}/{len(phrase_fnames)} complete")
         input(f"check wave files in {self.audio_path}, then hit enter")
 
     def copy_files(self):
-        utils.run_cmds(f"sudo cp -R * {self.audio_path} {self.tuned_path}")
+        utils.run_cmds(f"cd {self.audio_path} && cp -R * {self.tuned_path}")
         # Using bash instead of python to closely follow directions on
         # https://cmusphinx.github.io/wiki/tutorialadapt/
         for _dir in ["en-us",
@@ -125,9 +128,20 @@ class Audio_Tuner:
                             "rm -rf old_folder"])
 
     def convert_mdef(self):
-        utils.run_cmds("sudo apt -y install pocketsphinx")
+        #utils.run_cmds("sudo apt -y install pocketsphinx")
+        utils.run_cmds([f"cd {self.tuned_path}",
+                        "git clone git@github.com:cmusphinx/pocketsphinx.git",
+                        "cd pocketsphinx",
+                        "./autogen.sh",
+                        f"make -j {cpu_count()}",
+                        "sudo make install"])
+        tool_path = os.path.join(self.tuned_path,
+                                 "pocketsphinx",
+                                 "src",
+                                 "programs",
+                                 "pocketsphinx_mdef_convert")
         path = os.path.join(self.tuned_path, "en-us/mdef")
-        utils.run_cmds(f"pocketsphinx_mdef_convert -text {path} {path}.txt")
+        utils.run_cmds(f"{tool_path} -text {path} {path}.txt")
 
     def download_sphinxtrain(self):
         # Must get installed from source for fixes
@@ -169,6 +183,7 @@ class Audio_Tuner:
                  "en-us-adapt/variances -mapmixwfn "
                  "en-us-adapt/mixture_weights -maptmatfn "
                  "en-us-adapt/transition_matrices")]
+        utils.run_cmds(cmds)
 
     def run_mllr(self):
         # NOTE: not nearly as effective as run_adapt.
@@ -199,7 +214,7 @@ class Audio_Tuner:
                         f"cp {old_lm} {new_lm}",
                         f"cp {old_dict} {new_dict}",
                         f"cp -R {old_hmm} {new_hmm}",
-                        f"cp {old_mllr_matrix} {new_mllr_matrix}",
+                        #f"cp {old_mllr_matrix} {new_mllr_matrix}",
                         f"cp {self.tuned_path}/sphinxtrain/scripts/decode/word_align.pl ./test/"])
 
     def run_test_decoder(self):
@@ -208,8 +223,13 @@ class Audio_Tuner:
                 utils.run_cmds([f"cd {self.tuned_path}",
                                 f"rm -rf test/en-us",
                                 f"cp -R en-us-adapt test/en-us"])
+            tool_path = os.path.join(self.tuned_path,
+                                     "pocketsphinx",
+                                     "src",
+                                     "programs",
+                                     "pocketsphinx_batch")
             utils.run_cmds((f"cd {self.test_dir} && \\\n"
-                            "pocketsphinx_batch \\\n"
+                            f"{tool_path} \\\n"
                             f" -adcin yes \\\n"
                             f" -cepdir wav \\\n"
                             f" -cepext .wav \\\n"
@@ -217,7 +237,7 @@ class Audio_Tuner:
                             f" -lm en-us.lm.bin \\\n"
                             f" -dict cmudict-en-us.dict \\\n"
                             f" -hmm en-us \\\n"  # for example en-us
-                            f" -hyp test.hyp") + mllr,
+                            f" -hyp test.hyp"),
                             stdout=True)
             utils.run_cmds([f"cd {self.test_dir}",
                             "perl word_align.pl test.transcription test.hyp"],
