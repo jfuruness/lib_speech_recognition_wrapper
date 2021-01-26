@@ -92,7 +92,7 @@ class Audio_Tuner:
         with tarfile.open(path) as f:
             old_en_us_path = os.path.join(self.tuned_path, "en-us")
             utils.delete_paths(old_en_us_path)
-            f.extractall(old_en_us)
+            f.extractall(old_en_us_path)
 
     def write_transcription_file_ids(self):
         with open(self.transcription_path, "w") as transcription:
