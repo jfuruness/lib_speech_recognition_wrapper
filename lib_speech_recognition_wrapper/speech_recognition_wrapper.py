@@ -7,6 +7,7 @@ from time import perf_counter
 
 import pyaudio
 
+from .audio_tuner import Audio_Tuner
 from .defaults import default_keywords_dict
 
 from pocketsphinx import DefaultConfig, Decoder, get_model_path, get_data_path
@@ -21,7 +22,8 @@ class Speech_Recognition_Wrapper:
                  keywords_dict=None,
                  redownload=True,
                  callback_dict={},
-                 removed_words=[]):
+                 removed_words=[],
+                 tuning_phrases=[]):
         """Saves and if redownload then writes keywords"""
 
         # model path for pocket sphinx
@@ -39,6 +41,8 @@ class Speech_Recognition_Wrapper:
 
         # strings for keys, functions are the values
         self.callbacks_dict = callback_dict
+        if len(tuning_phrases) > 0:
+            Audio_Tuner(tuning_phrases).run()
 
     def write_keywords(self):
         """Writes keywords to their own file"""
