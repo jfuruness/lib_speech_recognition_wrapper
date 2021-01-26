@@ -1,9 +1,11 @@
 import os
+import logging
 from multiprocessing import Manager
 
 from pathos.multiprocessing import ProcessPool
 from pocketsphinx import get_model_path
 import pyaudio
+import tarfile
 import wave
 
 from lib_utils import utils
@@ -21,6 +23,7 @@ class Audio_Tuner:
     def __init__(self, tuning_phrases: list, times_to_record=1, test=False):
         """tuning phrases to be tuned to"""
 
+        self.model_path = get_model_path()
         self.tuning_phrases = tuning_phrases * times_to_record
         if test:
             self.tuning_phrases = self.tuning_phrases[:1]
@@ -30,16 +33,66 @@ class Audio_Tuner:
     def run(self):
         self.write_files()
         self.record_files()
-        input(f"check wave files in {self.tuned_path}, then hit enter")
-        
+        self.copy_files()
+        self.install_sphinx_base()
+        self.run_sphinx_fe()
+        self.download_proper_en()
+        input("wait")        
 
     def write_files(self):
-        self.make_tuning_dir()
+        utils.delete_paths(self.tuned_path)
+        utils.makedirs(self.tuned_path)
         self.write_transcription_file_ids()
 
     def record_files(self):
         for phrase, fname in self.phrase_iter():
             self.record_phrase(phrase, fname)
+        input(f"check wave files in {self.tuned_path}, then hit enter")
+
+    def copy_files(self):
+        # Using bash instead of python to closely follow directions on
+        # https://cmusphinx.github.io/wiki/tutorialadapt/
+        input(self.model_path)
+        for _dir in ["en-us",
+                     "cmudict-en-us.dict",
+                     "en-us.lm.bin"]:
+            path = os.path.join(self.model_path, _dir)
+            utils.run_cmds(f"cp -a {path} {self.tuned_path}")
+
+    def install_sphinx_base(self):
+        logging.info("Downloading sphinx base. This may take a minute")
+        # https://bangladroid.wordpress.com/2017/02/16/installing-cmu-sphinx-on-ubuntu/
+        utils.run_cmds("sudo apt-get install -y gcc automake autoconf libtool "
+                       "bison swig python-dev libpulse-dev")
+        sphinx_path = os.path.join(self.tuned_path, "sphinx-src")
+        utils.makedirs(sphinx_path, remake=True)
+        url = "https://github.com/cmusphinx/sphinxbase.git"
+        # sudo is used on the first command to ensure it's use
+        utils.run_cmds([f"sudo ls ",
+                        f"cd {sphinx_path}",
+                        f"git clone {url}",
+                        "cd sphinxbase",
+                        "./autogen.sh",
+                        "make",
+                        "sudo make install",
+                        f"cp src/sphinx_fe/sphinx_fe {self.tuned_path}"])
+
+    def run_sphinx_fe(self):
+        utils.run_cmds([f"cd {self.tuned_path}",
+                       (f"sphinx_fe -argfile en-us/feat.params "
+                        f"-samprate 16000 -c {self.file_ids_path} "
+                        "-di . -do . -ei wav -eo mfc -mswav yes")])
+
+    def download_proper_en(self):
+        url = ("https://phoenixnap.dl.sourceforge.net/project/cmusphinx/"
+               "Acoustic%20and%20Language%20Models/US%20English/"
+               "cmusphinx-en-us-5.2.tar.gz")
+        path = os.path.join(self.tuned_path, "larger_sphinx")
+        utils.download_file(url, path)
+        with tarfile.open(path) as f:
+            old_en_us_path = os.path.join(self.tuned_path, "en-us")
+            utils.delete_paths(old_en_us_path)
+            f.extractall(old_en_us)
 
     def write_transcription_file_ids(self):
         with open(self.transcription_path, "w") as transcription:
@@ -47,15 +100,6 @@ class Audio_Tuner:
                 for phrase, fname in self.phrase_iter():
                     f_ids.write(fname + "\n")
                     transcription.write(f"<s> {phrase} </s> ({fname})\n")
-
-    def make_tuning_dir(self):
-        try:
-            os.makedirs(self.tuned_path)
-        except PermissionError as e:
-            utils.run_cmds([f"sudo mkdir {self.tuned_path}",
-                            f"sudo chmod -R 777 {self.tuned_path}"])
-        except FileExistsError:
-            pass
 
     def record_phrase(self, phrase, fname):
         satisfied = False
@@ -84,7 +128,7 @@ class Audio_Tuner:
         stream.close()
         p.terminate()
 
-        with wave.open(self.audio_path(fname), 'wb') as wf:
+        with wave.open(self.audio_path(fname) + ".wav", 'wb') as wf:
             wf.setnchannels(1)
             wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
             wf.setframerate(16000)
