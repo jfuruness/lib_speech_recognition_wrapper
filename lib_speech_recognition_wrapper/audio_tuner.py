@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 import logging
 from multiprocessing import Manager, cpu_count
@@ -18,6 +19,7 @@ tuned_path = "/etc/tuned/"
 class Audio_Tuner:
 
     tuned_path = "/etc/tuned"
+    audio_path  ="/etc/audio"
     transcription_name = "assistant.transcription"
     file_ids_name = "assistant.fileids"
     test_transcription_name = "test.transcription"
@@ -26,6 +28,8 @@ class Audio_Tuner:
     def __init__(self, tuning_phrases: list, times_to_record=1, test=False):
         """tuning phrases to be tuned to"""
 
+        self.session_id = datetime.now().strftime("Y_%m_%d_%H_%M_%S")
+        self.session_id += "_" + input("User name").lower() + "_"
         self.model_path = get_model_path()
         self.tuning_phrases = tuning_phrases * times_to_record
         if test:
@@ -36,6 +40,7 @@ class Audio_Tuner:
     def run(self):
         self.generate_new_model()
         self.test_new_model()
+        input("backup audio in /etc/audio")
 
     def generate_new_model(self):
         self.write_files()
@@ -47,7 +52,8 @@ class Audio_Tuner:
         self.convert_mdef()
         self.download_sphinxtrain()
         self.run_bw()
-        self.run_mllr()
+        # self.run_mllr()
+        self.run_adapt()
 
     def test_new_model(self):
         self.write_test_files()
@@ -57,14 +63,19 @@ class Audio_Tuner:
     def write_files(self):
         utils.delete_paths(self.tuned_path)
         utils.makedirs(self.tuned_path)
+        if not os.path.exists(self.audio_path):
+            utils.makedirs(self.audio_path)
         self.write_transcription_file_ids()
 
     def record_files(self):
-        for phrase, fname in self.phrase_iter():
+        phrase_fnames = list(self.phrase_iter())
+        for i, (phrase, fname) in enumerate(phrase_fnames):
+            print("{i + 1}/{len(phrase_fnames)} complete")
             self.record_phrase(phrase, fname)
-        input(f"check wave files in {self.tuned_path}, then hit enter")
+        input(f"check wave files in {self.audio_path}, then hit enter")
 
     def copy_files(self):
+        utils.run_cmds(f"sudo cp -R * {self.audio_path} {self.tuned_path}")
         # Using bash instead of python to closely follow directions on
         # https://cmusphinx.github.io/wiki/tutorialadapt/
         for _dir in ["en-us",
@@ -148,7 +159,20 @@ class Audio_Tuner:
                          f" -lsnfn {self.transcription_name} \\\n"
                          " -accumdir .")])
 
+    def run_adapt(self):
+        cmds = [f"cd {self.tuned_path}",
+                "cp -R en-us en-us-adapt",
+                ("./map_adapt -moddeffn en-us/mdef.txt -ts2cbfn .cont. "
+                 "-meanfn en-us/means -varfn en-us/variances -mixwfn "
+                 "en-us/mixture_weights -tmatfn en-us/transition_matrices "
+                 "-accumdir . -mapmeanfn en-us-adapt/means -mapvarfn "
+                 "en-us-adapt/variances -mapmixwfn "
+                 "en-us-adapt/mixture_weights -maptmatfn "
+                 "en-us-adapt/transition_matrices")]
+
     def run_mllr(self):
+        # NOTE: not nearly as effective as run_adapt.
+        # Now we just use that instead
         utils.run_cmds([f"cd {self.tuned_path}",
                         ("./mllr_solve\\\n"
                          " -meanfn en-us/means \\\n"
@@ -179,7 +203,11 @@ class Audio_Tuner:
                         f"cp {self.tuned_path}/sphinxtrain/scripts/decode/word_align.pl ./test/"])
 
     def run_test_decoder(self):
-        for mllr in "", "\\\n -mllr mllr_matrix":
+        for adapt in [False, True]:
+            if adapt:
+                utils.run_cmds([f"cd {self.tuned_path}",
+                                f"rm -rf test/en-us",
+                                f"cp -R en-us-adapt test/en-us"])
             utils.run_cmds((f"cd {self.test_dir} && \\\n"
                             "pocketsphinx_batch \\\n"
                             f" -adcin yes \\\n"
@@ -194,12 +222,12 @@ class Audio_Tuner:
             utils.run_cmds([f"cd {self.test_dir}",
                             "perl word_align.pl test.transcription test.hyp"],
                             stdout=True)
-            input("test 1 no mllr, hit enter")
+            input(f"test complete with adapt as {adapt}, hit enter")
 
 
     def write_transcription_file_ids(self):
-        with open(self.transcription_path, "w") as transcription:
-            with open(self.file_ids_path, "w") as f_ids:
+        with open(self.audio_transcription_path, "a+") as transcription:
+            with open(self.audio_file_ids_path, "a+") as f_ids:
                 for phrase, fname in self.phrase_iter():
                     f_ids.write(fname + "\n")
                     transcription.write(f"<s> {phrase} </s> ({fname})\n")
@@ -231,7 +259,7 @@ class Audio_Tuner:
         stream.close()
         p.terminate()
 
-        with wave.open(self.audio_path(fname) + ".wav", 'wb') as wf:
+        with wave.open(self.file_to_audio_path(fname) + ".wav", 'wb') as wf:
             wf.setnchannels(1)
             wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
             wf.setframerate(16000)
@@ -242,13 +270,23 @@ class Audio_Tuner:
         """Returns phrase and fnames"""
 
         for i, phrase in enumerate(self.tuning_phrases):
-            yield phrase, self.audio_fname(i)
+            yield phrase, self.audio_fname(i, phrase)
 
-    def audio_path(self, fname):
-        return os.path.join(self.tuned_path, fname)
+    def file_to_audio_path(self, fname):
+        return os.path.join(self.audio_path, fname)
 
-    def audio_fname(self, num):
-        return f"{num:04}_phrase"
+    def audio_fname(self, num, phrase):
+        return f"{self.session_id}{num:04}_{phrase.replace(' ', '_')}"
+
+    @property
+    def audio_transcription_path(self):
+        return os.path.join(self.audio_path, self.transcription_name)
+
+    @property
+    def audio_file_ids_path(self):
+        return os.path.join(self.audio_path, self.file_ids_name)
+
+
 
     @property
     def transcription_path(self):
