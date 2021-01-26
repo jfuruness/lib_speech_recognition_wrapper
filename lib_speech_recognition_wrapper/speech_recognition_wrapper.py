@@ -144,18 +144,19 @@ class Speech_Recognition_Wrapper:
         return config
 
     def run(self):
-        stream = self.start_audio()
+        stream, _, __ = self.start_audio()
         self.run_decoder(stream)
 
     def start_audio(self):
+        chunks = 1024
         p = pyaudio.PyAudio()
         stream = p.open(format=pyaudio.paInt16,
                         channels=1,
                         rate=16000,
                         input=True,
-                        frames_per_buffer=1024)
+                        frames_per_buffer=chunks)
         stream.start_stream()
-        return stream
+        return stream, p, chunks
 
     def run_decoder(self, stream):
         # Process audio chunk by chunk. On keyword detected process/restart
