@@ -33,4 +33,4 @@ def main():
     utils.config_logging(logging.DEBUG if args.debug else logging.INFO, "speech")
 
     if args.run:
-        Speech_Recognition_Wrapper().run()
+        Speech_Recognition_Wrapper(test=args.test).run()

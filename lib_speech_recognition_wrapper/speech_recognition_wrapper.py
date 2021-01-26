@@ -3,6 +3,7 @@ import itertools
 import logging
 import os
 import re
+import sys
 from time import perf_counter
 
 import pyaudio
@@ -23,7 +24,8 @@ class Speech_Recognition_Wrapper:
                  redownload=True,
                  callback_dict={},
                  removed_words=[],
-                 tuning_phrases=[]):
+                 tuning_phrases=[],
+                 test=False):
         """Saves and if redownload then writes keywords"""
 
         # model path for pocket sphinx
@@ -42,7 +44,7 @@ class Speech_Recognition_Wrapper:
         # strings for keys, functions are the values
         self.callbacks_dict = callback_dict
         if len(tuning_phrases) > 0:
-            Audio_Tuner(tuning_phrases).run()
+            Audio_Tuner(tuning_phrases, test=test).run()
 
     def write_keywords(self):
         """Writes keywords to their own file"""
@@ -148,6 +150,13 @@ class Speech_Recognition_Wrapper:
         self.run_decoder(stream)
 
     def start_audio(self):
+        # https://github.com/spatialaudio/python-sounddevice/
+        # issues/11#issuecomment-155836787
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        old_stderr = os.dup(2)
+        sys.stderr.flush()
+        os.dup2(devnull, 2)
+        os.close(devnull)
         chunks = 1024
         p = pyaudio.PyAudio()
         stream = p.open(format=pyaudio.paInt16,
@@ -157,6 +166,8 @@ class Speech_Recognition_Wrapper:
                         frames_per_buffer=chunks)
         stream.start_stream()
         return stream, p, chunks
+        os.dup2(old_stderr, 2)
+        os.close(old_stderr)
 
     def run_decoder(self, stream):
         # Process audio chunk by chunk. On keyword detected process/restart
