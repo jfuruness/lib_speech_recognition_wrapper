@@ -62,7 +62,6 @@ class Audio_Tuner:
     def test_new_model(self):
         self.write_test_files()
         self.run_test_decoder()
-        input("wait")        
 
     def make_file_dirs(self):
         utils.delete_paths(self.tuned_path)

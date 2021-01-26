@@ -132,8 +132,9 @@ class Speech_Recognition_Wrapper:
     def get_config(self):
         # Create a decoder with a certain model
         config = DefaultConfig()
-        config.set_string('-hmm', os.path.join(self.model_path, 'en-us'))
-        config.set_string('-lm', os.path.join(self.model_path, 'en-us.lm.bin'))
+        #config.set_string('-hmm', os.path.join(self.model_path, 'en-us'))
+        config.set_string('-hmm', os.path.join(Audio_Tuner.tuned_path, 'en-us-adapt'))
+        config.set_string('-lm', os.path.join(Audio_Tuner.tuned_path, 'en-us.lm.bin'))
 
         # To do this, just only copy the words you want over to another file
         config.set_string('-dict', self.dict_path)
