@@ -48,7 +48,6 @@ class Audio_Tuner:
     def generate_new_model(self):
         self.make_file_dirs()
         self.record_files()
-        self.write_transcription_file_ids()
         self.copy_files()
         self.install_sphinx_base()
         self.run_sphinx_fe()
@@ -71,8 +70,12 @@ class Audio_Tuner:
 
     def record_files(self):
         phrase_fnames = list(self.phrase_iter())
-        for i, (phrase, fname) in enumerate(phrase_fnames):
-            self.record_phrase(phrase, fname)
+        with open(self.audio_transcription_path, "a+") as transcription:
+            with open(self.audio_file_ids_path, "a+") as f_ids:
+                for i, (phrase, fname) in enumerate(phrase_fnames):
+                    self.record_phrase(phrase, fname)
+                    f_ids.write(fname + "\n")
+                    transcription.write(f"<s> {phrase} </s> ({fname})\n")
             print(f"{i + 1}/{len(phrase_fnames)} complete")
         input(f"check wave files in {self.audio_path}, then hit enter")
 
@@ -243,13 +246,6 @@ class Audio_Tuner:
                             stdout=True)
             input(f"test complete with adapt as {adapt}, hit enter")
 
-
-    def write_transcription_file_ids(self):
-        with open(self.audio_transcription_path, "a+") as transcription:
-            with open(self.audio_file_ids_path, "a+") as f_ids:
-                for phrase, fname in self.phrase_iter():
-                    f_ids.write(fname + "\n")
-                    transcription.write(f"<s> {phrase} </s> ({fname})\n")
 
     def record_phrase(self, phrase, fname):
         satisfied = False

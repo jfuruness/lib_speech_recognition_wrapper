@@ -16,6 +16,7 @@ from pocketsphinx import DefaultConfig, Decoder, get_model_path, get_data_path
 
 class Speech_Recognition_Wrapper:
 
+    corpus_path = "/tmp/corpus.txt"
     keywords_path = "/tmp/kws.list"
     dict_path = "/tmp/en.dict"
 
@@ -25,8 +26,12 @@ class Speech_Recognition_Wrapper:
                  callback_dict={},
                  removed_words=[],
                  tuning_phrases=[],
-                 test=False):
+                 test=False,
+                 train=False,
+                 quiet=False):
         """Saves and if redownload then writes keywords"""
+
+        self.quiet = quiet
 
         # model path for pocket sphinx
         self.model_path = get_model_path()
@@ -43,15 +48,21 @@ class Speech_Recognition_Wrapper:
 
         # strings for keys, functions are the values
         self.callbacks_dict = callback_dict
-        if len(tuning_phrases) > 0:
+        if len(tuning_phrases) > 0 and train:
             Audio_Tuner(tuning_phrases, test=test).run()
 
     def write_keywords(self):
         """Writes keywords to their own file"""
 
         with open(self.keywords_path, "w") as f:
-            for keyword, multiplier in self.keywords_dict.items():
-                f.write(f"{keyword} /1e{multiplier}/\n")
+            with open(self.corpus_path, "w") as f2:
+                for keyword, multiplier in self.keywords_dict.items():
+                    f.write(f"{keyword.upper()} /1e{multiplier}/\n")
+                    #f.write(f"{keyword} /1e{multiplier}/\n")
+                    f2.write(keyword + "\n")
+        # This makes it worse, idk why
+        #input("upload corpus to http://www.speech.cs.cmu.edu/tools/lmtool-new.html")
+        #input("Save it in /tmp/knowledge_base.lm")
 
     def write_language_dict(self, words_to_remove):
         """Writes the language dictionary of the keywords"""
@@ -135,18 +146,27 @@ class Speech_Recognition_Wrapper:
         #config.set_string('-hmm', os.path.join(self.model_path, 'en-us'))
         config.set_string('-hmm', os.path.join(Audio_Tuner.tuned_path, 'en-us-adapt'))
         config.set_string('-lm', os.path.join(Audio_Tuner.tuned_path, 'en-us.lm.bin'))
+        #print("Using custom lm")
+        #config.set_string('-lm', "/tmp/knowledge_base.lm")
 
         # To do this, just only copy the words you want over to another file
         config.set_string('-dict', self.dict_path)
+        #print("using custom dict")
+        
+        #config.set_string('-dict', "/tmp/dict.dict")
         #config.set_string('-dict', os.path.join(self.model_path,
         #                                        'cmudict-en-us.dict'))
         config.set_string('-kws', self.keywords_path)
         config.set_string("-logfn", '/dev/null')
         config.set_boolean("-verbose", False)
 
+
         return config
 
     def run(self):
+        if self.quiet:
+            func = self.callbacks_dict[input("Quiet mode. Type command ").lower()]
+            os.system('notify-send "'+func.__name__+'" "'+"new lease"+'"')
         stream, _, __ = self.start_audio()
         self.run_decoder(stream)
 
@@ -166,6 +186,7 @@ class Speech_Recognition_Wrapper:
                         input=True,
                         frames_per_buffer=chunks)
         stream.start_stream()
+        print("stream started")
         return stream, p, chunks
         os.dup2(old_stderr, 2)
         os.close(old_stderr)
@@ -173,6 +194,7 @@ class Speech_Recognition_Wrapper:
     def run_decoder(self, stream):
         # Process audio chunk by chunk. On keyword detected process/restart
         decoder = Decoder(self.config)
+        #decoder.set_search('keywords')
         decoder.start_utt()
 
         last_decode_str = None
@@ -200,15 +222,19 @@ class Speech_Recognition_Wrapper:
 
                 
                 just_restarted = False
-                for keyword, callback in self.callbacks_dict.items():
-                    if len(re.findall(r"\b(" + f"{keyword}).*",
-                                      decoder.hyp().hypstr)) > 0:
-                        print([(seg.word, seg.prob) for seg in decoder.seg()])
-                        print(f"\nDetected keyword, running {callback.__name__}")
+                split_words = decoder.hyp().hypstr.lower().split()
+                for i in reversed(range(len(split_words))):
+                    together = " ".join(split_words[i:])
+                    if together in self.callbacks_dict:
+                        stream.stop_stream()
                         decoder.end_utt()
+                        callback = self.callbacks_dict[together]
+                        #print([(seg.word, seg.prob) for seg in decoder.seg()])
+                        print(f"\n{callback.__name__}")
+                        os.system('notify-send "'+callback.__name__+'" "'+together+'"')
                         callback(decoder.hyp().hypstr)
+                        stream.start_stream()
                         print("Listening again\r")
-
                         decoder.start_utt()
                         just_restarted = True
                         break
@@ -216,4 +242,4 @@ class Speech_Recognition_Wrapper:
                 if not just_restarted and len(decoder.hyp().hypstr) > 25:
                     print("No keyword, restarting search\r")
                     decoder.end_utt()
-                    decoder.start_utt() 
+                    decoder.start_utt()
