@@ -48,6 +48,7 @@ class Speech_Recognition_Wrapper:
 
         # strings for keys, functions are the values
         self.callbacks_dict = callback_dict
+
         if len(tuning_phrases) > 0 and train:
             Audio_Tuner(tuning_phrases, test=test).run()
 
@@ -166,7 +167,6 @@ class Speech_Recognition_Wrapper:
     def run(self):
         if self.quiet:
             func = self.callbacks_dict[input("Quiet mode. Type command ").lower()]
-            os.system('notify-send "'+func.__name__+'" "'+"new lease"+'"')
         stream, _, __ = self.start_audio()
         self.run_decoder(stream)
 
@@ -220,10 +220,9 @@ class Speech_Recognition_Wrapper:
                     last_decode_time = perf_counter()
                     print(decoder.hyp().hypstr + "\r")
 
-                
                 just_restarted = False
                 split_words = decoder.hyp().hypstr.lower().split()
-                for i in reversed(range(len(split_words))):
+                for i in range(len(split_words)):
                     together = " ".join(split_words[i:])
                     if together in self.callbacks_dict:
                         stream.stop_stream()
@@ -231,8 +230,10 @@ class Speech_Recognition_Wrapper:
                         callback = self.callbacks_dict[together]
                         #print([(seg.word, seg.prob) for seg in decoder.seg()])
                         print(f"\n{callback.__name__}")
-                        os.system('notify-send "'+callback.__name__+'" "'+together+'"')
-                        callback(decoder.hyp().hypstr)
+                        try:
+                            callback(decoder.hyp().hypstr)
+                        except Exception as e:
+                            print(e)
                         stream.start_stream()
                         print("Listening again\r")
                         decoder.start_utt()

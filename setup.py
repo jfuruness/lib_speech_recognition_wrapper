@@ -14,7 +14,6 @@ setup(
         #'lib_utils',
         'pocketsphinx',
         'pyaudio',
-        'tarfile'
     ],
     classifiers=[
         'Environment :: Console',

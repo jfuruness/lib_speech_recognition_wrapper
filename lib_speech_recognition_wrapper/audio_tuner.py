@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 import os
 import logging
 from multiprocessing import Manager, cpu_count
@@ -29,8 +30,9 @@ class Audio_Tuner:
     def __init__(self, tuning_phrases: list, times_to_record=1, test=False):
         """tuning phrases to be tuned to"""
 
-        self.session_id = datetime.now().strftime("Y_%m_%d_%H_%M_%S")
-        self.session_id += "_" + input("User name: ").lower() + "_"
+        self.session_id = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        self.username = input("User name: ").lower()
+        self.session_id += f"_{self.username}_"
         self.model_path = get_model_path()
         self.tuning_phrases = tuning_phrases * times_to_record
         if test:
@@ -43,20 +45,22 @@ class Audio_Tuner:
         utils.run_cmds("sudo apt -y install pocketsphinx")
         self.generate_new_model()
         self.test_new_model()
-        input("backup audio in /etc/audio")
+        input("backup audio in /etc/audio then press enter")
 
     def generate_new_model(self):
-        self.make_file_dirs()
-        self.record_files()
-        self.copy_files()
-        self.install_sphinx_base()
-        self.run_sphinx_fe()
-        self.download_proper_en()
-        self.convert_mdef()
-        self.download_sphinxtrain()
-        self.run_bw()
-        # self.run_mllr()
-        self.run_adapt()
+        for func in [self.make_file_dirs,
+                     self.record_files,
+                     self.copy_files,
+                     self.install_sphinx_base,
+                     self.run_sphinx_fe,
+                     self.download_proper_en,
+                     self.convert_mdef,
+                     self.download_sphinxtrain,
+                     self.run_bw,
+                     # self.run_mllr,
+                     self.run_adapt]:
+            logging.info(f"In {func.__name__}")
+            func()
 
     def test_new_model(self):
         self.write_test_files()
@@ -73,10 +77,12 @@ class Audio_Tuner:
         with open(self.audio_transcription_path, "a+") as transcription:
             with open(self.audio_file_ids_path, "a+") as f_ids:
                 for i, (phrase, fname) in enumerate(phrase_fnames):
-                    self.record_phrase(phrase, fname)
+                    finished = self.record_phrase(phrase, fname)
                     f_ids.write(fname + "\n")
                     transcription.write(f"<s> {phrase} </s> ({fname})\n")
-            print(f"{i + 1}/{len(phrase_fnames)} complete")
+                    if finished:
+                        break
+                    print(f"{i + 1}/{len(phrase_fnames)} complete")
         input(f"check wave files in {self.audio_path}, then hit enter")
 
     def copy_files(self):
@@ -90,7 +96,6 @@ class Audio_Tuner:
             utils.run_cmds(f"cp -a {path} {self.tuned_path}")
 
     def install_sphinx_base(self):
-        logging.info("Downloading sphinx base. This may take a minute")
         # https://bangladroid.wordpress.com/2017/02/16/installing-cmu-sphinx-on-ubuntu/
         utils.run_cmds("sudo apt-get install -y gcc automake autoconf libtool "
                        "bison swig python-dev libpulse-dev")
@@ -105,20 +110,25 @@ class Audio_Tuner:
                         "./autogen.sh",
                         f"make -j {cpu_count()}",
                         "sudo make install",
-                        f"cp src/sphinx_fe/sphinx_fe {self.tuned_path}"])
+                        f"cp src/sphinx_fe/sphinx_fe {self.tuned_path}"],
+                        stdout=True)
 
     def run_sphinx_fe(self):
         utils.run_cmds([f"cd {self.tuned_path}",
                        (f"sphinx_fe -argfile en-us/feat.params "
                         f"-samprate 16000 -c {self.file_ids_path} "
-                        "-di . -do . -ei wav -eo mfc -mswav yes")])
+                        "-di . -do . -ei wav -eo mfc -mswav yes")],
+                       stdout=True)
 
     def download_proper_en(self):
+
         url = ("https://phoenixnap.dl.sourceforge.net/project/cmusphinx/"
                "Acoustic%20and%20Language%20Models/US%20English/"
                "cmusphinx-en-us-5.2.tar.gz")
         path = os.path.join(self.tuned_path, "larger_sphinx.tar.gz")
+        logging.info("downloading file, this may take a while")
         utils.download_file(url, path)
+        logging.info("downloaded")
         with tarfile.open(path) as f:
             old_en_us_path = os.path.join(self.tuned_path, "en-us")
             utils.delete_paths(old_en_us_path)
@@ -127,7 +137,8 @@ class Audio_Tuner:
                             f"mv * old_folder",
                             "cd old_folder",
                             "mv * ..",
-                            "rm -rf old_folder"])
+                            "rm -rf old_folder"],
+                            stdout=True)
 
     def convert_mdef(self):
         #utils.run_cmds("sudo apt -y install pocketsphinx")
@@ -136,14 +147,16 @@ class Audio_Tuner:
                         "cd pocketsphinx",
                         "./autogen.sh",
                         f"make -j {cpu_count()}",
-                        "sudo make install"])
+                        "sudo make install"],
+                        stdout=True)
         tool_path = os.path.join(self.tuned_path,
                                  "pocketsphinx",
                                  "src",
                                  "programs",
                                  "pocketsphinx_mdef_convert")
         path = os.path.join(self.tuned_path, "en-us/mdef")
-        utils.run_cmds(f"{tool_path} -text {path} {path}.txt")
+        utils.run_cmds(f"{tool_path} -text {path} {path}.txt",
+                        stdout=True)
 
     def download_sphinxtrain(self):
         # Must get installed from source for fixes
@@ -152,7 +165,8 @@ class Audio_Tuner:
                         "cd sphinxtrain",
                         "./autogen.sh",
                         f"make -j {cpu_count()}",
-                        "sudo make install"])
+                        "sudo make install"],
+                        stdout=True)
         for fname in ["bw", "map_adapt", "mk_s2sendump", "mllr_solve"]:
             old_path = os.path.join("/usr/local/libexec/sphinxtrain/", fname)
             new_path = os.path.join(self.tuned_path, fname)
@@ -173,7 +187,7 @@ class Audio_Tuner:
                          " -dictfn cmudict-en-us.dict \\\n"
                          f" -ctlfn {self.file_ids_name} \\\n"
                          f" -lsnfn {self.transcription_name} \\\n"
-                         " -accumdir .")])
+                         " -accumdir .")], stdout=True)
 
     def run_adapt(self):
         cmds = [f"cd {self.tuned_path}",
@@ -185,7 +199,7 @@ class Audio_Tuner:
                  "en-us-adapt/variances -mapmixwfn "
                  "en-us-adapt/mixture_weights -maptmatfn "
                  "en-us-adapt/transition_matrices")]
-        utils.run_cmds(cmds)
+        utils.run_cmds(cmds, stdout=True)
 
     def run_mllr(self):
         # NOTE: not nearly as effective as run_adapt.
@@ -194,7 +208,8 @@ class Audio_Tuner:
                         ("./mllr_solve\\\n"
                          " -meanfn en-us/means \\\n"
                          " -varfn en-us/variances \\\n"
-                         " -outmllrfn mllr_matrix -accumdir .")])
+                         " -outmllrfn mllr_matrix -accumdir .")],
+                        stdout=True)
 
     def write_test_files(self):
         utils.makedirs(self.test_dir)
@@ -217,7 +232,8 @@ class Audio_Tuner:
                         f"cp {old_dict} {new_dict}",
                         f"cp -R {old_hmm} {new_hmm}",
                         #f"cp {old_mllr_matrix} {new_mllr_matrix}",
-                        f"cp {self.tuned_path}/sphinxtrain/scripts/decode/word_align.pl ./test/"])
+                        f"cp {self.tuned_path}/sphinxtrain/scripts/decode/word_align.pl ./test/"],
+                        stdout=True)
 
     def run_test_decoder(self):
         for adapt in [False, True]:
@@ -252,16 +268,18 @@ class Audio_Tuner:
         while not satisfied:
             # spawn process that records audio
             with utils.Pool(4, 0, "record pool") as pool:
-                input(f"Get ready to record: {phrase}, hit enter when ready")
+                input(f"Get ready to record, then hit enter: {phrase}")
                 m = Manager()
                 q = m.Queue()
                 pool.apipe(self.audio_recording_process, fname, q)
                 input()
                 q.put("done")
             retry_key = "n"
-            ans = input(f"Satisfied? enter {retry_key} to retry")
+            finished_key = "d"
+            ans = input(f"Satisfied? enter {retry_key} to retry or {finished_key} to be done")
             if retry_key not in ans.lower():
                 satisfied = True
+        return finished_key in ans
 
     def audio_recording_process(self, fname, q):
         # TODO: refactor this to include this stuff as class attrs of wrapper
@@ -284,8 +302,30 @@ class Audio_Tuner:
     def phrase_iter(self):
         """Returns phrase and fnames"""
 
-        for i, phrase in enumerate(self.tuning_phrases):
-            yield phrase, self.audio_fname(i, phrase)
+        f = []
+        for (dirpath, dirnames, filenames) in os.walk(self.audio_path):
+            f.extend(filenames)
+            break
+
+        tuning_phrases_set = set(self.tuning_phrases)
+        previously_seen_phrases = []
+        for fname in f:
+            if self.username in fname:
+                phrase = re.findall(".*\d_(.*).wav", fname)[0].replace("_", " ")
+                if phrase in tuning_phrases_set:
+                    previously_seen_phrases.append(phrase)
+        prev_seen_phrases_set = set(previously_seen_phrases)
+
+        new_words = [x for x in self.tuning_phrases
+                     if x not in prev_seen_phrases_set]
+        if len(new_words) == 0:
+            for i, phrase in enumerate(self.tuning_phrases):
+                yield phrase, self.audio_fname(i, phrase)
+        else:
+            for i, phrase in enumerate(new_words):
+                yield phrase, self.audio_fname(i, phrase)
+            for j, phrase in enumerate(previously_seen_phrases):
+                yield phrase, self.audio_fname(j + i, phrase)
 
     def file_to_audio_path(self, fname):
         return os.path.join(self.audio_path, fname)
