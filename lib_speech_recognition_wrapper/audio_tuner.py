@@ -317,7 +317,7 @@ class Audio_Tuner:
         prev_seen_phrases_set = set(previously_seen_phrases)
 
         new_words = [x for x in self.tuning_phrases
-                     if x not in prev_seen_phrases_set]
+                     if x not in prev_seen_phrases_set or "tab" in x or "town" in x or "scroll" in x]
         if len(new_words) == 0:
             for i, phrase in enumerate(self.tuning_phrases):
                 yield phrase, self.audio_fname(i, phrase)
