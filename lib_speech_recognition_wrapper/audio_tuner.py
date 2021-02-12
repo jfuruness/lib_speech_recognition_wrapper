@@ -12,7 +12,9 @@ import tarfile
 from shutil import copyfile
 import wave
 
-from lib_utils import utils
+from lib_utils.helper_funcs import Pool, run_cmds
+from lib_utils.print_funcs import write_to_stdout
+from lib_utils.file_funcs import makedirs, delete_paths, download_file
 
 from . import speech_recognition_wrapper as sr
 
@@ -42,7 +44,7 @@ class Audio_Tuner:
         self.model_path = get_model_path()
 
     def run(self):
-        utils.run_cmds("sudo apt -y install pocketsphinx")
+        run_cmds("sudo apt -y install pocketsphinx")
         self.generate_new_model()
         self.test_new_model()
         input("backup audio in /etc/audio then press enter")
@@ -67,10 +69,10 @@ class Audio_Tuner:
         self.run_test_decoder()
 
     def make_file_dirs(self):
-        utils.delete_paths(self.tuned_path)
-        utils.makedirs(self.tuned_path)
+        delete_paths(self.tuned_path)
+        makedirs(self.tuned_path)
         if not os.path.exists(self.audio_path):
-            utils.makedirs(self.audio_path)
+            makedirs(self.audio_path)
 
     def record_files(self):
         phrase_fnames = list(self.phrase_iter())
@@ -86,24 +88,24 @@ class Audio_Tuner:
         input(f"check wave files in {self.audio_path}, then hit enter")
 
     def copy_files(self):
-        utils.run_cmds(f"cd {self.audio_path} && cp -R * {self.tuned_path}")
+        run_cmds(f"cd {self.audio_path} && cp -R * {self.tuned_path}")
         # Using bash instead of python to closely follow directions on
         # https://cmusphinx.github.io/wiki/tutorialadapt/
         for _dir in ["en-us",
                      "cmudict-en-us.dict",
                      "en-us.lm.bin"]:
             path = os.path.join(self.model_path, _dir)
-            utils.run_cmds(f"cp -a {path} {self.tuned_path}")
+            run_cmds(f"cp -a {path} {self.tuned_path}")
 
     def install_sphinx_base(self):
         # https://bangladroid.wordpress.com/2017/02/16/installing-cmu-sphinx-on-ubuntu/
-        utils.run_cmds("sudo apt-get install -y gcc automake autoconf libtool "
+        run_cmds("sudo apt-get install -y gcc automake autoconf libtool "
                        "bison swig python-dev libpulse-dev")
         sphinx_path = os.path.join(self.tuned_path, "sphinx-src")
-        utils.makedirs(sphinx_path, remake=True)
+        makedirs(sphinx_path, remake=True)
         url = "https://github.com/cmusphinx/sphinxbase.git"
         # sudo is used on the first command to ensure it's use
-        utils.run_cmds([f"sudo ls ",
+        run_cmds([f"sudo ls ",
                         f"cd {sphinx_path}",
                         f"git clone {url}",
                         "cd sphinxbase",
@@ -114,7 +116,7 @@ class Audio_Tuner:
                         stdout=True)
 
     def run_sphinx_fe(self):
-        utils.run_cmds([f"cd {self.tuned_path}",
+        run_cmds([f"cd {self.tuned_path}",
                        (f"sphinx_fe -argfile en-us/feat.params "
                         f"-samprate 16000 -c {self.file_ids_path} "
                         "-di . -do . -ei wav -eo mfc -mswav yes")],
@@ -127,13 +129,13 @@ class Audio_Tuner:
                "cmusphinx-en-us-5.2.tar.gz")
         path = os.path.join(self.tuned_path, "larger_sphinx.tar.gz")
         logging.info("downloading file, this may take a while")
-        utils.download_file(url, path)
+        download_file(url, path)
         logging.info("downloaded")
         with tarfile.open(path) as f:
             old_en_us_path = os.path.join(self.tuned_path, "en-us")
-            utils.delete_paths(old_en_us_path)
+            delete_paths(old_en_us_path)
             f.extractall(old_en_us_path)
-            utils.run_cmds([f"cd {old_en_us_path}",
+            run_cmds([f"cd {old_en_us_path}",
                             f"mv * old_folder",
                             "cd old_folder",
                             "mv * ..",
@@ -141,8 +143,8 @@ class Audio_Tuner:
                             stdout=True)
 
     def convert_mdef(self):
-        #utils.run_cmds("sudo apt -y install pocketsphinx")
-        utils.run_cmds([f"cd {self.tuned_path}",
+        #run_cmds("sudo apt -y install pocketsphinx")
+        run_cmds([f"cd {self.tuned_path}",
                         "git clone git@github.com:cmusphinx/pocketsphinx.git",
                         "cd pocketsphinx",
                         "./autogen.sh",
@@ -155,12 +157,12 @@ class Audio_Tuner:
                                  "programs",
                                  "pocketsphinx_mdef_convert")
         path = os.path.join(self.tuned_path, "en-us/mdef")
-        utils.run_cmds(f"{tool_path} -text {path} {path}.txt",
+        run_cmds(f"{tool_path} -text {path} {path}.txt",
                         stdout=True)
 
     def download_sphinxtrain(self):
         # Must get installed from source for fixes
-        utils.run_cmds([f"cd {self.tuned_path}",
+        run_cmds([f"cd {self.tuned_path}",
                         "git clone git@github.com:cmusphinx/sphinxtrain.git",
                         "cd sphinxtrain",
                         "./autogen.sh",
@@ -170,10 +172,10 @@ class Audio_Tuner:
         for fname in ["bw", "map_adapt", "mk_s2sendump", "mllr_solve"]:
             old_path = os.path.join("/usr/local/libexec/sphinxtrain/", fname)
             new_path = os.path.join(self.tuned_path, fname)
-            utils.run_cmds(f"cp {old_path} {new_path}")
+            run_cmds(f"cp {old_path} {new_path}")
         
     def run_bw(self):
-        utils.run_cmds([f"cd {self.tuned_path}",
+        run_cmds([f"cd {self.tuned_path}",
                         ("sudo ./bw \\\n"
                          " -hmmdir en-us \\\n"
                          " -moddeffn en-us/mdef.txt \\\n"
@@ -199,22 +201,22 @@ class Audio_Tuner:
                  "en-us-adapt/variances -mapmixwfn "
                  "en-us-adapt/mixture_weights -maptmatfn "
                  "en-us-adapt/transition_matrices")]
-        utils.run_cmds(cmds, stdout=True)
+        run_cmds(cmds, stdout=True)
 
     def run_mllr(self):
         # NOTE: not nearly as effective as run_adapt.
         # Now we just use that instead
-        utils.run_cmds([f"cd {self.tuned_path}",
-                        ("./mllr_solve\\\n"
-                         " -meanfn en-us/means \\\n"
-                         " -varfn en-us/variances \\\n"
-                         " -outmllrfn mllr_matrix -accumdir .")],
-                        stdout=True)
+        run_cmds([f"cd {self.tuned_path}",
+                  ("./mllr_solve\\\n"
+                   " -meanfn en-us/means \\\n"
+                   " -varfn en-us/variances \\\n"
+                   " -outmllrfn mllr_matrix -accumdir .")],
+                  stdout=True)
 
     def write_test_files(self):
-        utils.makedirs(self.test_dir)
+        makedirs(self.test_dir)
         wav_dir = os.path.join(self.test_dir, "wav/")
-        utils.makedirs(wav_dir)
+        makedirs(wav_dir)
         old_lm = os.path.join(self.tuned_path, "en-us.lm.bin")
         new_lm = os.path.join(self.test_dir, "en-us.lm.bin")
         old_dict = os.path.join(self.tuned_path, "cmudict-en-us.dict")
@@ -223,43 +225,43 @@ class Audio_Tuner:
         new_hmm = os.path.join(self.test_dir, "en-us")
         old_mllr_matrix = os.path.join(self.tuned_path, "mllr_matrix")
         new_mllr_matrix = os.path.join(self.test_dir, "mllr_matrix")
-        utils.run_cmds([f"cd {self.tuned_path}",
-                        f"cp {self.file_ids_path} {self.test_file_ids_path}",
-                        (f"cp {self.transcription_path} "
-                         f"{self.test_transcription_path}"),
-                        f"cp *wav {wav_dir}",
-                        f"cp {old_lm} {new_lm}",
-                        f"cp {old_dict} {new_dict}",
-                        f"cp -R {old_hmm} {new_hmm}",
-                        #f"cp {old_mllr_matrix} {new_mllr_matrix}",
-                        f"cp {self.tuned_path}/sphinxtrain/scripts/decode/word_align.pl ./test/"],
-                        stdout=True)
+        run_cmds([f"cd {self.tuned_path}",
+                  f"cp {self.file_ids_path} {self.test_file_ids_path}",
+                  (f"cp {self.transcription_path} "
+                   f"{self.test_transcription_path}"),
+                   f"cp *wav {wav_dir}",
+                   f"cp {old_lm} {new_lm}",
+                   f"cp {old_dict} {new_dict}",
+                   f"cp -R {old_hmm} {new_hmm}",
+                   #f"cp {old_mllr_matrix} {new_mllr_matrix}",
+                   f"cp {self.tuned_path}/sphinxtrain/scripts/decode/word_align.pl ./test/"],
+                   stdout=True)
 
     def run_test_decoder(self):
         for adapt in [False, True]:
             if adapt:
-                utils.run_cmds([f"cd {self.tuned_path}",
-                                f"rm -rf test/en-us",
-                                f"cp -R en-us-adapt test/en-us"])
+                run_cmds([f"cd {self.tuned_path}",
+                          f"rm -rf test/en-us",
+                          f"cp -R en-us-adapt test/en-us"])
             tool_path = os.path.join(self.tuned_path,
                                      "pocketsphinx",
                                      "src",
                                      "programs",
                                      "pocketsphinx_batch")
-            utils.run_cmds((f"cd {self.test_dir} && \\\n"
-                            f"{tool_path} \\\n"
-                            f" -adcin yes \\\n"
-                            f" -cepdir wav \\\n"
-                            f" -cepext .wav \\\n"
-                            f" -ctl test.fileids \\\n"
-                            f" -lm en-us.lm.bin \\\n"
-                            f" -dict cmudict-en-us.dict \\\n"
-                            f" -hmm en-us \\\n"  # for example en-us
-                            f" -hyp test.hyp"),
+            run_cmds((f"cd {self.test_dir} && \\\n"
+                      f"{tool_path} \\\n"
+                      f" -adcin yes \\\n"
+                      f" -cepdir wav \\\n"
+                      f" -cepext .wav \\\n"
+                      f" -ctl test.fileids \\\n"
+                      f" -lm en-us.lm.bin \\\n"
+                      f" -dict cmudict-en-us.dict \\\n"
+                      f" -hmm en-us \\\n"  # for example en-us
+                      f" -hyp test.hyp"),
                             stdout=True)
-            utils.run_cmds([f"cd {self.test_dir}",
-                            "perl word_align.pl test.transcription test.hyp"],
-                            stdout=True)
+            run_cmds([f"cd {self.test_dir}",
+                      "perl word_align.pl test.transcription test.hyp"],
+                      stdout=True)
             input(f"test complete with adapt as {adapt}, hit enter")
 
 
@@ -267,7 +269,7 @@ class Audio_Tuner:
         satisfied = False
         while not satisfied:
             # spawn process that records audio
-            with utils.Pool(4, 0, "record pool") as pool:
+            with Pool(4, 0, "record pool") as pool:
                 input(f"Get ready to record, then hit enter: {phrase}")
                 m = Manager()
                 q = m.Queue()
@@ -284,7 +286,7 @@ class Audio_Tuner:
     def audio_recording_process(self, fname, q):
         # TODO: refactor this to include this stuff as class attrs of wrapper
         stream, p, chunk_size = sr.Speech_Recognition_Wrapper.start_audio(self)
-        utils.write_to_stdout("Ready! Record, then hit enter!")
+        write_to_stdout("Ready! Record, then hit enter!")
         frames = []
         while q.empty():
             frames.append(stream.read(chunk_size))
