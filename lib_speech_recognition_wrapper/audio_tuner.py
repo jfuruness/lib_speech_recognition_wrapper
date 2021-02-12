@@ -269,7 +269,7 @@ class Audio_Tuner:
         satisfied = False
         while not satisfied:
             # spawn process that records audio
-            with Pool(4, 0, "record pool") as pool:
+            with Pool(4, 0) as pool:
                 input(f"Get ready to record, then hit enter: {phrase}")
                 m = Manager()
                 q = m.Queue()
