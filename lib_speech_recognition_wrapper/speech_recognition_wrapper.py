@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import sys
+import time
 from time import perf_counter
 
 import pyaudio
@@ -24,6 +25,7 @@ class Speech_Recognition_Wrapper:
                  keywords_dict=None,
                  redownload=True,
                  callback_dict={},
+                 callback_time_dict={},
                  removed_words=[],
                  tuning_phrases=[],
                  test=False,
@@ -48,6 +50,7 @@ class Speech_Recognition_Wrapper:
 
         # strings for keys, functions are the values
         self.callbacks_dict = callback_dict
+        self.callback_time_dict = callback_time_dict
 
         if len(tuning_phrases) > 0 and train:
             Audio_Tuner(tuning_phrases, test=test).run()
@@ -206,6 +209,19 @@ class Speech_Recognition_Wrapper:
                 decoder.process_raw(buf, False, False)
             else:
                 break
+
+            _time_check = datetime.now().replace(second=0, microsecond=0)
+            if _time_check in self.callback_time_dict:
+                stream.stop_stream()
+                decoder.end_utt()
+                self.callback_time_dict[_time_check]()
+                # Wait until the next minute
+                time.sleep(60)
+                stream.start_stream()
+                print("Listening again\r")
+                decoder.start_utt()
+                just_restarted = True
+                
             if decoder.hyp() is not None:
                 if last_decode_str == decoder.hyp().hypstr:
                     reset_max = 5
