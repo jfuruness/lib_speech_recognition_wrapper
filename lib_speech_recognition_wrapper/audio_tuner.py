@@ -134,7 +134,26 @@ class Audio_Tuner:
         with tarfile.open(path) as f:
             old_en_us_path = os.path.join(self.tuned_path, "en-us")
             delete_paths(old_en_us_path)
-            f.extractall(old_en_us_path)
+            def is_within_directory(directory, target):
+                
+                abs_directory = os.path.abspath(directory)
+                abs_target = os.path.abspath(target)
+            
+                prefix = os.path.commonprefix([abs_directory, abs_target])
+                
+                return prefix == abs_directory
+            
+            def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+            
+                for member in tar.getmembers():
+                    member_path = os.path.join(path, member.name)
+                    if not is_within_directory(path, member_path):
+                        raise Exception("Attempted Path Traversal in Tar File")
+            
+                tar.extractall(path, members, numeric_owner=numeric_owner) 
+                
+            
+            safe_extract(f, old_en_us_path)
             run_cmds([f"cd {old_en_us_path}",
                             f"mv * old_folder",
                             "cd old_folder",
